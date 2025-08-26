@@ -1,13 +1,38 @@
-# Python-generated files
+# Python
 __pycache__/
-*.py[oc]
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.egg-info/
+.eggs/
 build/
 dist/
-wheels/
-*.egg-info
 
 # Virtual environments
-.venv
-/.idea
-/pyproject.toml
-/uv.lock
+.venv/
+venv/
+ENV/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE/editor
+.vscode/
+.idea/
+
+# Project artifacts
+.database/
+database.db
+*.sqlite3
+
+# Test/coverage caches
+.pytest_cache/
+.coverage*
+.mypy_cache/
+.ruff_cache/
+
+# UV
+.uv/
+uv.lock

@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QApplication, QVBoxLayout, QLabel, QWidget, \
+from PyQt6.QtWidgets import QApplication, QVBoxLayout, QLabel, \
     QLineEdit, QGridLayout, QPushButton, QMainWindow, QTableWidget, QTableWidgetItem, QDialog, QComboBox,\
     QToolBar,QStatusBar,QMessageBox
 from PyQt6.QtGui import QAction,QIcon
@@ -78,8 +78,11 @@ class MainWindow(QMainWindow):
         # Delete all records
         cursor.execute("DELETE FROM students")
 
-        # Reset the auto-increment counter
-        cursor.execute("DELETE FROM sqlite_sequence WHERE name='students'")
+        # Reset the auto-increment counter (safe even if sqlite_sequence doesn't exist)
+        try:
+            cursor.execute("DELETE FROM sqlite_sequence WHERE name='students'")
+        except sqlite3.OperationalError:
+            pass
 
         # Re-insert students with sequential IDs
         for i, (old_id, name, course, mobile) in enumerate(students, 1):
