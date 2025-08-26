@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import QApplication, QVBoxLayout, QLabel, QWidget, \
-    QLineEdit, QGridLayout, QPushButton, QMainWindow, QTableWidget, QTableWidgetItem, QDialog, QComboBox
-from PyQt6.QtGui import QAction
+    QLineEdit, QGridLayout, QPushButton, QMainWindow, QTableWidget, QTableWidgetItem, QDialog, QComboBox,\
+    QToolBar,QStatusBar
+from PyQt6.QtGui import QAction,QIcon
 from PyQt6.QtCore import Qt
 import sys
 import sqlite3
@@ -11,19 +12,20 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Student Management System")
+        self.setMinimumSize(600, 800)
 
         file_menu = self.menuBar().addMenu("&File")
         help_menu = self.menuBar().addMenu("&Help")
         edit_menu = self.menuBar().addMenu("&Edit")
 
-        add_student_action = QAction("&Add Student", self)
+        add_student_action = QAction(QIcon("icons/add.png"),"&Add Student", self)
         add_student_action.triggered.connect(self.insert)
         file_menu.addAction(add_student_action)
 
         about_action = QAction("&About", self)
         help_menu.addAction(about_action)
 
-        search_action = QAction("&Search", self)
+        search_action = QAction(QIcon("icons/search.png"),"&Search", self)
         edit_menu.addAction(search_action)
         search_action.triggered.connect(self.search_student)
 
@@ -32,6 +34,32 @@ class MainWindow(QMainWindow):
         self.table.setHorizontalHeaderLabels(("Id", "Name", "Course", "Mobile"))
         self.table.verticalHeader().setVisible(False)
         self.setCentralWidget(self.table)
+
+        toolbar = QToolBar()
+        toolbar.setMovable(True)
+        self.addToolBar(toolbar)
+
+        toolbar.addAction(add_student_action)
+        toolbar.addAction(search_action)
+
+        statusbar = QStatusBar()
+        self.setStatusBar(statusbar)
+
+        self.table.cellClicked.connect(self.cell_clicked)
+
+    def cell_clicked(self):
+        edit_button = QPushButton("Edit")
+        edit_button.clicked.connect(self.edit_student)
+
+        delete_button = QPushButton("Delete")
+        delete_button.clicked.connect(self.delete_student)
+
+        childern = self.findChildren(QPushButton)
+        if childern:
+            for child in childern:
+                self.statusBar().removeWidget(child)
+        self.statusBar().addWidget(edit_button)
+        self.statusBar().addWidget(delete_button)
 
     def load_data(self):
         connection = sqlite3.connect("database.db")
@@ -54,6 +82,12 @@ class MainWindow(QMainWindow):
         dialog = SearchDialog()
         dialog.exec()
 
+    def edit_student(self):
+        dialog = EditDialog()
+        dialog.exec()
+
+    def delete_student(self):
+        pass
 
 class InsertDialog(QDialog):
 
@@ -135,8 +169,69 @@ class SearchDialog(QDialog):
         cursor.close()
         connection.close()
 
+class EditDialog(QDialog):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Update Student")
+        self.setFixedWidth(300)
+        self.setFixedHeight(300)
 
+        layout = QVBoxLayout()
 
+        index = main_window.table.currentRow()
+        student_name = main_window.table.item(index, 1).text()
+
+        self.student_id = main_window.table.item(index, 0).text()
+
+        self.student_name = QLineEdit(student_name)
+        self.student_name.setPlaceholderText("Update Student Name")
+        layout.addWidget(self.student_name)
+
+        course_item = main_window.table.item(index, 2).text()
+        self.course_name = QComboBox()
+        courses = ["Computer Science", "Mathematics", "Physics", "Chemistry"]
+        self.course_name.addItems(courses)
+        self.course_name.setCurrentText(course_item)
+        layout.addWidget(self.course_name)
+
+        mobile_number = main_window.table.item(index, 3).text()
+        self.mobile = QLineEdit(mobile_number)
+        self.mobile.setPlaceholderText("Enter Mobile Number")
+        layout.addWidget(self.mobile)
+
+        button = QPushButton("Update")
+        button.clicked.connect(self.update_student)
+        layout.addWidget(button)
+
+        self.setLayout(layout)
+
+    def update_student(self):
+        connection = sqlite3.connect("database.db")
+        cursor = connection.cursor()
+        cursor.execute("UPDATE students SET name = ?, course = ?, mobile = ? WHERE id = ?",
+                       (self.student_name.text(),
+                        self.course_name.itemText(self.course_name.currentIndex()),
+                        self.mobile.text(),
+                        self.student_id))
+        connection.commit()
+        cursor.close()
+        connection.close()
+        main_window.load_data()
+
+    def add_student(self):
+        name = self.student_name.text()
+        course = self.course_name.itemText(self.course_name.currentIndex())
+        mobile = self.mobile.text()
+
+        connection = sqlite3.connect("database.db")
+        cursor = connection.cursor()
+        cursor.execute("INSERT INTO students (name, course, mobile) VALUES (?, ?, ?)",
+                       (name, course, mobile))
+        connection.commit()
+        cursor.close()
+        connection.close()
+
+        main_window.load_data()
 app = QApplication(sys.argv)
 main_window = MainWindow()
 main_window.show()
