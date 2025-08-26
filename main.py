@@ -8,7 +8,6 @@ import sqlite3
 
 
 class MainWindow(QMainWindow):
-
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Student Management System")
@@ -24,6 +23,7 @@ class MainWindow(QMainWindow):
 
         about_action = QAction("&About", self)
         help_menu.addAction(about_action)
+        about_action.triggered.connect(self.about)
 
         search_action = QAction(QIcon("icons/search.png"),"&Search", self)
         edit_menu.addAction(search_action)
@@ -89,6 +89,20 @@ class MainWindow(QMainWindow):
     def delete_student(self):
         dialog = DeleteDialog()
         dialog.exec()
+
+    def about(self):
+        dialog = AboutDialog()
+        dialog.exec()
+
+class AboutDialog(QMessageBox):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("About")
+        content = "Student Management System v1.0\n" \
+                  "This application is developed by Teethanker Sarker\n" \
+                  "It is a simple student management system built with PyQt6 and SQLite."
+        self.setText(content)
+        self.setStandardButtons(QMessageBox.StandardButton.Ok)
 
 class InsertDialog(QDialog):
 
