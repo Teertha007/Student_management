@@ -13,6 +13,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Student Management System")
         self.setMinimumSize(600, 800)
 
+        # Initialize database
+        self.init_database()
+
         file_menu = self.menuBar().addMenu("&File")
         help_menu = self.menuBar().addMenu("&Help")
         edit_menu = self.menuBar().addMenu("&Edit")
@@ -47,6 +50,46 @@ class MainWindow(QMainWindow):
 
         self.table.cellClicked.connect(self.cell_clicked)
 
+    def init_database(self):
+        """Initialize the database and create table if it doesn't exist"""
+        connection = sqlite3.connect("database.db")
+        cursor = connection.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS students (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                course TEXT NOT NULL,
+                mobile TEXT NOT NULL
+            )
+        ''')
+        connection.commit()
+        cursor.close()
+        connection.close()
+
+    def rearrange_ids(self):
+        """Rearrange student IDs to be sequential without gaps"""
+        connection = sqlite3.connect("database.db")
+        cursor = connection.cursor()
+
+        # Get all students ordered by current ID
+        cursor.execute("SELECT id, name, course, mobile FROM students ORDER BY id")
+        students = cursor.fetchall()
+
+        # Delete all records
+        cursor.execute("DELETE FROM students")
+
+        # Reset the auto-increment counter
+        cursor.execute("DELETE FROM sqlite_sequence WHERE name='students'")
+
+        # Re-insert students with sequential IDs
+        for i, (old_id, name, course, mobile) in enumerate(students, 1):
+            cursor.execute("INSERT INTO students (id, name, course, mobile) VALUES (?, ?, ?, ?)",
+                         (i, name, course, mobile))
+
+        connection.commit()
+        cursor.close()
+        connection.close()
+
     def cell_clicked(self):
         edit_button = QPushButton("Edit")
         edit_button.clicked.connect(self.edit_student)
@@ -63,7 +106,7 @@ class MainWindow(QMainWindow):
 
     def load_data(self):
         connection = sqlite3.connect("database.db")
-        result = connection.execute("SELECT * FROM students")
+        result = connection.execute("SELECT * FROM students ORDER BY id")
 
         self.table.setRowCount(0)
 
@@ -140,13 +183,20 @@ class InsertDialog(QDialog):
 
         connection = sqlite3.connect("database.db")
         cursor = connection.cursor()
-        cursor.execute("INSERT INTO students (name, course, mobile) VALUES (?, ?, ?)",
-                       (name, course, mobile))
+
+        # Get the next available ID
+        cursor.execute("SELECT MAX(id) FROM students")
+        max_id = cursor.fetchone()[0]
+        next_id = 1 if max_id is None else max_id + 1
+
+        cursor.execute("INSERT INTO students (id, name, course, mobile) VALUES (?, ?, ?, ?)",
+                       (next_id, name, course, mobile))
         connection.commit()
         cursor.close()
         connection.close()
 
         main_window.load_data()
+        self.close()
 
 class SearchDialog(QDialog):
     def __init__(self):
@@ -232,27 +282,12 @@ class EditDialog(QDialog):
         cursor.close()
         connection.close()
         main_window.load_data()
-
-    def add_student(self):
-        name = self.student_name.text()
-        course = self.course_name.itemText(self.course_name.currentIndex())
-        mobile = self.mobile.text()
-
-        connection = sqlite3.connect("database.db")
-        cursor = connection.cursor()
-        cursor.execute("INSERT INTO students (name, course, mobile) VALUES (?, ?, ?)",
-                       (name, course, mobile))
-        connection.commit()
-        cursor.close()
-        connection.close()
-
-        main_window.load_data()
+        self.close()
 
 class DeleteDialog(QDialog):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Update Student")
-
+        self.setWindowTitle("Delete Student")
 
         layout = QGridLayout()
         confirmation = QLabel("Are you sure you want to delete this student?")
@@ -277,6 +312,9 @@ class DeleteDialog(QDialog):
         connection.commit()
         cursor.close()
         connection.close()
+
+        # Rearrange IDs after deletion to remove gaps
+        main_window.rearrange_ids()
         main_window.load_data()
         self.close()
 
