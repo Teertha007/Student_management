@@ -4,8 +4,99 @@ from PyQt6.QtWidgets import QApplication, QVBoxLayout, QLabel, \
 from PyQt6.QtGui import QAction,QIcon
 from PyQt6.QtCore import Qt
 import sys
+import os
 import sqlite3
 
+# Try to import MySQL connector, fall back to SQLite if not available or connection fails
+try:
+    import mysql.connector
+    MYSQL_AVAILABLE = True
+except ImportError:
+    MYSQL_AVAILABLE = False
+    print("MySQL connector not available, using SQLite instead")
+
+class DatabaseConnection:
+    USE_SQLITE = True  # Force SQLite by default for now
+
+    def __init__(self,host="localhost", user="root", password="2580teertha",
+                  database="school"):
+        self.host = host
+        self.user = user
+        self.password = password
+        self.database = database
+
+    @staticmethod
+    def connect(host: str = "localhost", user: str = "root", password: str = "2580teertha", database: str = "school"):
+        """Get a database connection (MySQL preferred, SQLite fallback)."""
+        if DatabaseConnection.USE_SQLITE:
+            return sqlite3.connect("database.db")
+
+        if not MYSQL_AVAILABLE:
+            print("MySQL not available, falling back to SQLite")
+            DatabaseConnection.USE_SQLITE = True
+            return sqlite3.connect("database.db")
+
+        try:
+            host = os.getenv("DB_HOST", host)
+            user = os.getenv("DB_USER", user)
+            password = os.getenv("DB_PASSWORD", password)
+            database = os.getenv("DB_NAME", database)
+
+            # Test the connection with timeout
+            conn = mysql.connector.connect(
+                host=host,
+                user=user,
+                password=password,
+                database=database,
+                connection_timeout=3,
+                autocommit=True
+            )
+            return conn
+        except mysql.connector.Error as err:
+            print(f"MySQL connection failed: {err}")
+            print(f"Attempted connection: host={host}, user={user}, database={database}")
+            print("Falling back to SQLite database...")
+            DatabaseConnection.USE_SQLITE = True
+            return sqlite3.connect("database.db")
+        except Exception as e:
+            print(f"Unexpected error connecting to MySQL: {e}")
+            print("Falling back to SQLite database...")
+            DatabaseConnection.USE_SQLITE = True
+            return sqlite3.connect("database.db")
+
+    @staticmethod
+    def ensure_database(host: str = "localhost", user: str = "root", password: str = "2580teertha", database: str = "school"):
+        """Ensure the target database exists (MySQL only, SQLite auto-creates)."""
+        if DatabaseConnection.USE_SQLITE:
+            return  # SQLite auto-creates the file
+
+        if not MYSQL_AVAILABLE:
+            return
+
+        try:
+            host = os.getenv("DB_HOST", host)
+            user = os.getenv("DB_USER", user)
+            password = os.getenv("DB_PASSWORD", password)
+            database = os.getenv("DB_NAME", database)
+
+            # Connect to server without selecting a database (with timeout)
+            conn = mysql.connector.connect(
+                host=host,
+                user=user,
+                password=password,
+                connection_timeout=3
+            )
+            cur = conn.cursor()
+            try:
+                cur.execute(f"CREATE DATABASE IF NOT EXISTS `{database}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+                conn.commit()
+            finally:
+                cur.close()
+                conn.close()
+        except Exception as e:
+            print(f"Could not create MySQL database: {e}")
+            print("Will use SQLite instead")
+            DatabaseConnection.USE_SQLITE = True
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -13,8 +104,22 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Student Management System")
         self.setMinimumSize(600, 800)
 
-        # Initialize database
-        self.init_database()
+        # Initialize database with error handling
+        try:
+            print("Initializing database...")
+            self.init_database()
+            db_type = "SQLite" if DatabaseConnection.USE_SQLITE else "MySQL"
+            print(f"Database initialized successfully using {db_type}")
+        except Exception as e:
+            print(f"Database initialization failed: {e}")
+            print("The application will continue with SQLite...")
+            DatabaseConnection.USE_SQLITE = True
+            try:
+                self.init_database()
+                print("SQLite fallback successful")
+            except Exception as e2:
+                print(f"Even SQLite failed: {e2}")
+                sys.exit(1)
 
         file_menu = self.menuBar().addMenu("&File")
         help_menu = self.menuBar().addMenu("&Help")
@@ -51,44 +156,65 @@ class MainWindow(QMainWindow):
         self.table.cellClicked.connect(self.cell_clicked)
 
     def init_database(self):
-        """Initialize the database and create table if it doesn't exist"""
-        connection = sqlite3.connect("database.db")
+        """Initialize the database and create table if it doesn't exist."""
+        # Ensure DB exists (MySQL only)
+        DatabaseConnection.ensure_database()
+
+        connection = DatabaseConnection.connect()
         cursor = connection.cursor()
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS students (
-                id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL,
-                course TEXT NOT NULL,
-                mobile TEXT NOT NULL
-            )
-        ''')
+
+        if DatabaseConnection.USE_SQLITE:
+            # SQLite syntax
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS students (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    course TEXT NOT NULL,
+                    mobile TEXT NOT NULL
+                )
+            ''')
+        else:
+            # MySQL syntax
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS students (
+                    id INT NOT NULL AUTO_INCREMENT,
+                    name VARCHAR(255) NOT NULL,
+                    course VARCHAR(100) NOT NULL,
+                    mobile VARCHAR(20) NOT NULL,
+                    PRIMARY KEY (id)
+                ) ENGINE=InnoDB
+            ''')
         connection.commit()
         cursor.close()
         connection.close()
 
     def rearrange_ids(self):
-        """Rearrange student IDs to be sequential without gaps"""
-        connection = sqlite3.connect("database.db")
+        """Reassign IDs to be sequential by re-inserting rows."""
+        connection = DatabaseConnection.connect()
         cursor = connection.cursor()
 
-        # Get all students ordered by current ID
-        cursor.execute("SELECT id, name, course, mobile FROM students ORDER BY id")
-        students = cursor.fetchall()
+        # Read current data ordered by id
+        cursor.execute("SELECT name, course, mobile FROM students ORDER BY id")
+        rows = cursor.fetchall()
 
-        # Delete all records
-        cursor.execute("DELETE FROM students")
-
-        # Reset the auto-increment counter (safe even if sqlite_sequence doesn't exist)
-        try:
+        if DatabaseConnection.USE_SQLITE:
+            # SQLite approach
+            cursor.execute("DELETE FROM students")
+            # Reset the auto-increment counter
             cursor.execute("DELETE FROM sqlite_sequence WHERE name='students'")
-        except sqlite3.OperationalError:
-            pass
-
-        # Re-insert students with sequential IDs
-        for i, (old_id, name, course, mobile) in enumerate(students, 1):
-            cursor.execute("INSERT INTO students (id, name, course, mobile) VALUES (?, ?, ?, ?)",
-                         (i, name, course, mobile))
-
+            # Re-insert students with sequential IDs
+            for i, (name, course, mobile) in enumerate(rows, 1):
+                cursor.execute("INSERT INTO students (id, name, course, mobile) VALUES (?, ?, ?, ?)",
+                             (i, name, course, mobile))
+        else:
+            # MySQL approach
+            cursor.execute("TRUNCATE TABLE students")
+            # Re-insert without id so AUTO_INCREMENT assigns sequential ids
+            if rows:
+                cursor.executemany(
+                    "INSERT INTO students (name, course, mobile) VALUES (%s, %s, %s)",
+                    rows,
+                )
         connection.commit()
         cursor.close()
         connection.close()
@@ -108,16 +234,19 @@ class MainWindow(QMainWindow):
         self.statusBar().addWidget(delete_button)
 
     def load_data(self):
-        connection = sqlite3.connect("database.db")
-        result = connection.execute("SELECT * FROM students ORDER BY id")
+        connection = DatabaseConnection.connect()
+        cursor = connection.cursor()
+        cursor.execute("SELECT id, name, course, mobile FROM students ORDER BY id")
+        rows = cursor.fetchall()
 
         self.table.setRowCount(0)
 
-        for row_number, row_data in enumerate(result):
+        for row_number, row_data in enumerate(rows):
             self.table.insertRow(row_number)
             for column_number, data in enumerate(row_data):
                 self.table.setItem(row_number, column_number, QTableWidgetItem(str(data)))
 
+        cursor.close()
         connection.close()
 
     def insert(self):
@@ -146,7 +275,7 @@ class AboutDialog(QMessageBox):
         self.setWindowTitle("About")
         content = "Student Management System v1.0\n" \
                   "This application is developed by Teethanker Sarker\n" \
-                  "It is a simple student management system built with PyQt6 and SQLite."
+                  "It is a simple student management system built with PyQt6 and MySQL."
         self.setText(content)
         self.setStandardButtons(QMessageBox.StandardButton.Ok)
 
@@ -184,16 +313,19 @@ class InsertDialog(QDialog):
         course = self.course_name.itemText(self.course_name.currentIndex())
         mobile = self.mobile.text()
 
-        connection = sqlite3.connect("database.db")
+        connection = DatabaseConnection.connect()
         cursor = connection.cursor()
 
-        # Get the next available ID
-        cursor.execute("SELECT MAX(id) FROM students")
-        max_id = cursor.fetchone()[0]
-        next_id = 1 if max_id is None else max_id + 1
-
-        cursor.execute("INSERT INTO students (id, name, course, mobile) VALUES (?, ?, ?, ?)",
-                       (next_id, name, course, mobile))
+        if DatabaseConnection.USE_SQLITE:
+            cursor.execute(
+                "INSERT INTO students (name, course, mobile) VALUES (?, ?, ?)",
+                (name, course, mobile),
+            )
+        else:
+            cursor.execute(
+                "INSERT INTO students (name, course, mobile) VALUES (%s, %s, %s)",
+                (name, course, mobile),
+            )
         connection.commit()
         cursor.close()
         connection.close()
@@ -223,16 +355,23 @@ class SearchDialog(QDialog):
     def search(self):
         name = self.student_name.text()
 
-        connection = sqlite3.connect("database.db")
+        connection = DatabaseConnection.connect()
         cursor = connection.cursor()
-        result = cursor.execute("SELECT * FROM students WHERE name = ?", (name,))
 
-        row = list(result)[0]
-        print(row)
-        items = main_window.table.findItems(name,Qt.MatchFlag.MatchFixedString)
+        if DatabaseConnection.USE_SQLITE:
+            cursor.execute("SELECT id, name, course, mobile FROM students WHERE name = ?", (name,))
+        else:
+            cursor.execute("SELECT id, name, course, mobile FROM students WHERE name = %s", (name,))
+        rows = cursor.fetchall()
+
+        # Highlight matching rows in the table
+        items = main_window.table.findItems(name, Qt.MatchFlag.MatchFixedString)
         for item in items:
-            print(item)
-            main_window.table.item(item.row(),1).setSelected(True)
+            main_window.table.item(item.row(), 1).setSelected(True)
+
+        # Optional: print first match to console for debugging
+        if rows:
+            print(rows[0])
 
         cursor.close()
         connection.close()
@@ -274,13 +413,29 @@ class EditDialog(QDialog):
         self.setLayout(layout)
 
     def update_student(self):
-        connection = sqlite3.connect("database.db")
+        connection = DatabaseConnection.connect()
         cursor = connection.cursor()
-        cursor.execute("UPDATE students SET name = ?, course = ?, mobile = ? WHERE id = ?",
-                       (self.student_name.text(),
-                        self.course_name.itemText(self.course_name.currentIndex()),
-                        self.mobile.text(),
-                        self.student_id))
+
+        if DatabaseConnection.USE_SQLITE:
+            cursor.execute(
+                "UPDATE students SET name = ?, course = ?, mobile = ? WHERE id = ?",
+                (
+                    self.student_name.text(),
+                    self.course_name.itemText(self.course_name.currentIndex()),
+                    self.mobile.text(),
+                    self.student_id,
+                ),
+            )
+        else:
+            cursor.execute(
+                "UPDATE students SET name = %s, course = %s, mobile = %s WHERE id = %s",
+                (
+                    self.student_name.text(),
+                    self.course_name.itemText(self.course_name.currentIndex()),
+                    self.mobile.text(),
+                    self.student_id,
+                ),
+            )
         connection.commit()
         cursor.close()
         connection.close()
@@ -309,9 +464,13 @@ class DeleteDialog(QDialog):
         index = main_window.table.currentRow()
         student_id = main_window.table.item(index, 0).text()
 
-        connection = sqlite3.connect("database.db")
+        connection = DatabaseConnection.connect()
         cursor = connection.cursor()
-        cursor.execute("DELETE FROM students WHERE id = ?", (student_id,))
+
+        if DatabaseConnection.USE_SQLITE:
+            cursor.execute("DELETE FROM students WHERE id = ?", (student_id,))
+        else:
+            cursor.execute("DELETE FROM students WHERE id = %s", (student_id,))
         connection.commit()
         cursor.close()
         connection.close()

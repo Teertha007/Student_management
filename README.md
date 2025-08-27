@@ -1,16 +1,17 @@
-# Student Management System (PyQt6 + SQLite)
+# Student Management System (PyQt6 + MySQL)
 
-A simple desktop app to manage student records (add, search, edit, delete) using PyQt6 for the UI and SQLite for storage. The database is local and created automatically on first run.
+A simple desktop app to manage student records (add, search, edit, delete) using PyQt6 for the UI and MySQL for storage. The MySQL database and table are created automatically on first run.
 
 ## Features
 - Add new students with name, course, and mobile
 - Search students by exact name
 - Edit and delete existing records
 - Auto-rearrange IDs after deletion to keep them sequential
-- Lightweight: single-file app with local SQLite database
+- Single-file app with a MySQL backend
 
 ## Requirements
 - Python 3.11 or newer (per pyproject)
+- MySQL Server 8.0+ available locally or remotely
 - Windows, macOS, or Linux
 
 ## Installation
@@ -31,7 +32,7 @@ source .venv/bin/activate
 2) Install dependencies
 ```
 pip install -U pip
-pip install PyQt6
+pip install PyQt6 mysql-connector-python
 ```
 
 Option B — uv (recommended if you have uv installed)
@@ -39,6 +40,36 @@ Option B — uv (recommended if you have uv installed)
 uv venv
 uv sync
 ```
+
+## Configure database connection
+By default, the app connects to a local MySQL server using:
+- host: localhost
+- user: root
+- password: 2580teertha
+- database: school
+
+Override these with environment variables before running:
+- DB_HOST
+- DB_USER
+- DB_PASSWORD
+- DB_NAME
+
+Examples (Windows PowerShell):
+```
+$env:DB_HOST = "localhost"
+$env:DB_USER = "root"
+$env:DB_PASSWORD = "your_password"
+$env:DB_NAME = "school"
+```
+macOS/Linux bash:
+```
+export DB_HOST=localhost
+export DB_USER=root
+export DB_PASSWORD=your_password
+export DB_NAME=school
+```
+
+On first launch, the app will ensure the target database exists and create the `students` table if it isn't present.
 
 ## Run
 From the project root:
@@ -50,13 +81,10 @@ Or with uv:
 uv run python main.py
 ```
 
-On first launch, a SQLite database file database.db will be created in the project directory. Sample toolbar icons are included in icons/.
-
 ## Project structure
 ```
 student management/
-├─ main.py            # PyQt6 application
-├─ database.db        # Auto-created SQLite database (can be deleted/regenerated)
+├─ main.py            # PyQt6 application (uses MySQL)
 ├─ icons/
 │  ├─ add.png
 │  └─ search.png
@@ -65,15 +93,21 @@ student management/
 └─ README.md
 ```
 
+Note: The previous SQLite file (database.db) is no longer used. You can delete it safely.
+
 ## Notes
-- The app keeps student IDs sequential by compacting IDs after a deletion.
-- The database ships with the repo for convenience. If you don’t want to track local data, add database.db to .gitignore before committing.
+- The app keeps student IDs sequential by compacting IDs after a deletion. In MySQL this is done by re-inserting rows to reassign AUTO_INCREMENT ids.
+- If your MySQL user doesn't have permission for TRUNCATE, you can adjust the `rearrange_ids` method to avoid TRUNCATE.
 
 ## Troubleshooting
+- MySQL connection errors:
+  - Verify host/user/password/db are correct (use env vars).
+  - Ensure MySQL Server is running and accessible.
+  - Ensure the user has rights to create databases and tables on the server.
 - Qt platform plugin errors (e.g., "could not find the Qt platform plugin"):
   - Reinstall PyQt6: `pip install --force-reinstall --no-cache-dir PyQt6`
   - Ensure you’re running inside the virtual environment that has PyQt6 installed.
-- If fonts or icons don’t render, verify the icons/ folder exists next to main.py.
+- If icons don’t render, verify the icons/ folder exists next to main.py.
 
 ## Contributing
 - Open an issue for bugs or feature requests.
